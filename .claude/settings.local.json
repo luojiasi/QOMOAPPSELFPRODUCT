@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Test-Path -Path \"E:\\\\DeskTop\\\\QomoApp\\\\QomoTech_FrontEnd\\\\src\\\\renderer\\\\src\\\\modules\\\\entitiesEditor\" -PathType Container)",
+      "Bash(Test-Path -Path \"E:\\\\DeskTop\\\\QomoApp\\\\QomoTech_FrontEnd\\\\src\\\\renderer\\\\src\\\\modules\\\\entitiesEditor\" -PathType Leaf)"
+    ]
+  }
+}
