@@ -130,7 +130,7 @@ function closeCtxMenu() {
     <div class="window-controls-spacer" />
 
     <!-- ▸ 右键策略弹出菜单 -->
-    <teleport to="body">
+    <!-- <teleport to="body">
       <div
         v-if="ctxMenu.visible"
         class="ctx-menu-backdrop"
@@ -153,7 +153,7 @@ function closeCtxMenu() {
           <span>{{ s.label }}</span>
         </button>
       </div>
-    </teleport>
+    </teleport> -->
   </div>
 </template>
 
