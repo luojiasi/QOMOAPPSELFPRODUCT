@@ -17,9 +17,12 @@ import { SETTINGS_STATE_KEY } from '../shares/types'
 import type { ActionDef, Scene3DConfig } from '../shares/types'
 import { loadSceneConfig, saveSceneConfig } from '../stores/preview3dStore'
 import { saveProject, exportProject, loadProjectIntoStore } from '../stores/projectStore'
+import { EntityKind } from '../commons/types'
+import { useEditorStore } from '../stores/editorStore'
 
 const { activeTab, rightPanelTabs } = useRightPanel()
-const { selectedEntity, updateField } = useInspectorPanel()
+const { selectedEntity, selectedEntities, updateField } = useInspectorPanel()
+const editorStore = useEditorStore()
 
 const settingsRef = ref<InstanceType<typeof SettingsDialog> | null>(null)
 const previewRef = ref<InstanceType<typeof Preview3D> | null>(null)
@@ -54,6 +57,14 @@ const { dispatchAction } = useShortCutsDetails({
 function onToolbarAction(a: ActionDef) {
   dispatchAction(a)
 }
+/** 右键切换绘制策略（EditorToolbar 冒泡上来） */
+function onContextStrategy(payload: { kind: EntityKind; strategyId: string }) {
+  // 先保存策略选择，再切换工具 —— _start 会读取已保存的策略
+  // canvas2DRef.value?.drawInteraction.setStrategy(payload.kind, payload.strategyId)
+  editorStore.setTool('DRAW')
+  editorStore.setDrawSubTool(payload.kind)
+}
+
 
 function onSettingsSaved() {
   previewRef.value?.reloadConfig()
@@ -66,6 +77,7 @@ useKeyboardShortcuts(dispatchAction, { isOpen: settingsIsOpen, capturing: settin
 
 <template>
   <div class="editor-page">
+    <!-- 首先我们要在这里去添加回传给到2D去画图 -->
     <EditorToolbar ref="toolbarRef" @action="onToolbarAction" />
 
     <div class="main-area desktop-only">
@@ -78,7 +90,7 @@ useKeyboardShortcuts(dispatchAction, { isOpen: settingsIsOpen, capturing: settin
       <div class="panel panel-right">
         <SwitchableView v-model="activeTab" :tabs="rightPanelTabs">
           <LayoutPanel v-if="activeTab === 'layout'" />
-          <InspectorPanel v-else-if="activeTab === 'inspector'" :entity="selectedEntity" @update="updateField" />
+          <InspectorPanel v-else-if="activeTab === 'inspector'" :entities="selectedEntities" @update="updateField" />
           <StoreDebugger v-else-if="activeTab === 'debug'" />
         </SwitchableView>
       </div>

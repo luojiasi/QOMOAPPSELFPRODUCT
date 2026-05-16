@@ -14,8 +14,18 @@ export function useInspectorPanel() {
     return store.entities.find(e => e.id === store.selectedIds[0]) ?? null
   })
 
-  function updateField(field: string, value: number | boolean) {
-    const entity = selectedEntity.value
+  /** 全部选中实体（用于多选批量展示/编辑） */
+  const selectedEntities = computed<InspectedEntity[]>(() => {
+    if (store.selectedIds.length === 0) return []
+    const set = new Set(store.selectedIds)
+    return store.entities.filter(e => set.has(e.id))
+  })
+
+  function updateField(field: string, value: number | boolean | string, entityId?: string) {
+    const id = entityId ?? selectedEntity.value?.id
+    if (!id) return
+
+    const entity = store.entities.find(e => e.id === id)
     if (!entity) return
 
     const dotIndex = field.indexOf('.')
@@ -23,13 +33,13 @@ export function useInspectorPanel() {
       const parent = field.substring(0, dotIndex)
       const child = field.substring(dotIndex + 1)
       const current = (entity as Record<string, unknown>)[parent]
-      store.updateEntity(entity.id, {
+      store.updateEntity(id, {
         [parent]: { ...(current as Record<string, unknown>), [child]: value },
       } as Partial<SurfaceEntity<EditorEntity>>)
     } else {
-      store.updateEntity(entity.id, { [field]: value } as Partial<SurfaceEntity<EditorEntity>>)
+      store.updateEntity(id, { [field]: value } as Partial<SurfaceEntity<EditorEntity>>)
     }
   }
 
-  return { activeSection, selectedEntity, updateField }
+  return { activeSection, selectedEntity, selectedEntities, updateField }
 }
