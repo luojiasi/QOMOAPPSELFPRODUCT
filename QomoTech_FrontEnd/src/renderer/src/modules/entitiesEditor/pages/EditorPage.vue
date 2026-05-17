@@ -59,8 +59,8 @@ function onToolbarAction(a: ActionDef) {
 }
 /** 右键切换绘制策略（EditorToolbar 冒泡上来） */
 function onContextStrategy(payload: { kind: EntityKind; strategyId: string }) {
-  // 先保存策略选择，再切换工具 —— _start 会读取已保存的策略
-  // canvas2DRef.value?.drawInteraction.setStrategy(payload.kind, payload.strategyId)
+  // // 先保存策略选择，再切换工具 —— _start 会读取已保存的策略
+  // // canvas2DRef.value?.drawInteraction.setStrategy(payload.kind, payload.strategyId)
   editorStore.setTool('DRAW')
   editorStore.setDrawSubTool(payload.kind)
 }
@@ -78,7 +78,7 @@ useKeyboardShortcuts(dispatchAction, { isOpen: settingsIsOpen, capturing: settin
 <template>
   <div class="editor-page">
     <!-- 首先我们要在这里去添加回传给到2D去画图 -->
-    <EditorToolbar ref="toolbarRef" @action="onToolbarAction" />
+    <EditorToolbar ref="toolbarRef" @action="onToolbarAction"  @context-strategy="onContextStrategy"/>
 
     <div class="main-area desktop-only">
       <div class="panel panel-3d">

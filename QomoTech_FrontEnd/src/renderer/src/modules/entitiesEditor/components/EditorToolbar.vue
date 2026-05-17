@@ -3,6 +3,7 @@ import { reactive } from 'vue';
 import { EntityKind } from '../commons/types';
 import { useEditorToolbar } from '../composables/useEditorToolbar'
 import type { ActionDef } from '../shares/types'
+import { getStrategies } from '../composables/canvas/drawStrategies';
 
 const { fileGroup, shapeGroup, toolGroup, settingsGroup, toolTitle, reload } = useEditorToolbar()
 
@@ -130,7 +131,7 @@ function closeCtxMenu() {
     <div class="window-controls-spacer" />
 
     <!-- ▸ 右键策略弹出菜单 -->
-    <!-- <teleport to="body">
+    <teleport to="body">
       <div
         v-if="ctxMenu.visible"
         class="ctx-menu-backdrop"
@@ -153,7 +154,7 @@ function closeCtxMenu() {
           <span>{{ s.label }}</span>
         </button>
       </div>
-    </teleport> -->
+    </teleport>
   </div>
 </template>
 

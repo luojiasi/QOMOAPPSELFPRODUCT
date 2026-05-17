@@ -12,6 +12,16 @@
 //   - PAN 模式：拖拽平移
 //   - 滚轮以鼠标为中心缩放
 //
+// 【职责】
+//   - screenToWorld / worldToScreen 坐标转换
+//   - 网格绘制
+//   - 遍历 store.entities 绘制全部图元（LINE/ARC/CIRCLE/BEZIER/POLYLINE/ELLIPSE）
+//   - 选中/悬停高亮、框选矩形、绘制预览线
+//   - SELECT 模式：点击选中、框选
+//   - DRAW 模式：点击式绘制（委托给 useDrawInteraction 状态机）
+//   - PAN 模式：拖拽平移
+//   - 滚轮以鼠标为中心缩放
+//
 // 【使用方式】
 //   在 Canvas2D.vue 中：
 //
@@ -45,6 +55,7 @@ import {
   getEntityBounds,
 } from '@/modules/entitiesEditor/utils/geometry'
 import { cursorX, cursorY } from '@/modules/entitiesEditor/composables/useStatusBar'
+import { useDrawInteraction } from './useDrawInteraction'
 
 // ── composable ────────────────────────────────────────────────────────────
 
@@ -61,13 +72,11 @@ export function useCanvas2D() {
   const canvasRef = ref<HTMLCanvasElement | null>(null)
 
   // ── 交互状态 ─────────────────────────────────────────────────────────
-
-  /** 绘制起点（世界坐标） */
-  const drawStartPoint = ref<Point2D | null>(null)
-  /** 绘制预览终点（世界坐标） */
-  const drawPreviewPoint = ref<Point2D | null>(null)
-  /** 是否正在绘制（DRAW 模式拖拽中） */
-  const isDrawing = ref(false)
+  /** 绘制交互状态机 */
+  const drawInteraction = useDrawInteraction()
+  
+  /** 鼠标世界坐标（用于绘制预览线） */
+  const cursorWorld = ref<Point2D>({ X: 0, Y: 0 })
   /** 框选矩形（世界坐标），null 表示无框选 */
   const selectionRect = ref<{ start: Point2D; end: Point2D } | null>(null)
   /** PAN 拖拽起点（屏幕坐标 + 初始 viewport.panX/Y） */
@@ -187,8 +196,8 @@ export function useCanvas2D() {
     }
 
     // 绘制预览
-    if (isDrawing.value && drawStartPoint.value && drawPreviewPoint.value) {
-      drawPreview(c, drawStartPoint.value, drawPreviewPoint.value)
+    if (drawInteraction.isActive.value) {
+      drawInteractionPreview(c)
     }
 
     c.restore()
@@ -321,37 +330,18 @@ export function useCanvas2D() {
     c.setLineDash([])
   }
 
-  // ── 绘制预览 ─────────────────────────────────────────────────────────
+  // ── 交互预览绘制 ────────────────────────────────────────────────────
+  //
+  // 根据 drawInteraction 当前状态，在画布上绘制虚线预览：
+  //   - 已确定的点与光标之间连线
+  //   - 依赖 cursorWorld 获取当前鼠标世界坐标
 
-  function drawPreview(c: CanvasRenderingContext2D, start: Point2D, end: Point2D) {
+  function drawInteractionPreview(c: CanvasRenderingContext2D) {
     const kind = store.drawSubTool
 
     c.strokeStyle = cfg.previewStroke
     c.lineWidth = cfg.entityLineWidth / store.viewport.zoom
     c.setLineDash(cfg.previewDash.map(d => d / store.viewport.zoom))
-
-    if (kind === 'LINE') {
-      c.beginPath()
-      c.moveTo(start.X, start.Y)
-      c.lineTo(end.X, end.Y)
-      c.stroke()
-    } else if (kind === 'CIRCLE') {
-      const r = Math.hypot(end.X - start.X, end.Y - start.Y)
-      c.beginPath()
-      c.arc(start.X, start.Y, r, 0, Math.PI * 2)
-      c.stroke()
-    } else if (kind === 'ARC') {
-      // 简单预览：显示圆心到鼠标的圆
-      const r = Math.hypot(end.X - start.X, end.Y - start.Y)
-      c.beginPath()
-      c.arc(start.X, start.Y, r, 0, Math.PI * 2)
-      c.stroke()
-      // 半径线
-      c.beginPath()
-      c.moveTo(start.X, start.Y)
-      c.lineTo(end.X, end.Y)
-      c.stroke()
-    }
 
     c.setLineDash([])
   }
@@ -509,9 +499,8 @@ export function useCanvas2D() {
       }
       scheduleRender()
     } else if (tool === 'DRAW') {
-      isDrawing.value = true
-      drawStartPoint.value = { ...world }
-      drawPreviewPoint.value = { ...world }
+      // 点击式绘制：委托给交互状态机
+      drawInteraction.handleCanvasClick(world)
       scheduleRender()
     } else if (tool === 'PAN') {
       panStart.value = {
@@ -539,8 +528,7 @@ export function useCanvas2D() {
         hoveredId.value = hitTest(world)
         if (prev !== hoveredId.value) scheduleRender()
       }
-    } else if (store.activeTool === 'DRAW' && isDrawing.value) {
-      drawPreviewPoint.value = { ...world }
+    } else if (store.activeTool === 'DRAW' && drawInteraction.isActive.value) {
       scheduleRender()
     } else if (store.activeTool === 'PAN' && panStart.value) {
       const dx = e.clientX - panStart.value.sx
@@ -563,11 +551,7 @@ export function useCanvas2D() {
       store.setSelection(ids)
       selectionRect.value = null
       scheduleRender()
-    } else if (tool === 'DRAW' && isDrawing.value && drawStartPoint.value) {
-      finishDrawing(drawStartPoint.value, world)
-      isDrawing.value = false
-      drawStartPoint.value = null
-      drawPreviewPoint.value = null
+    } else if (tool === 'DRAW') {
       scheduleRender()
     } else if (tool === 'PAN') {
       panStart.value = null
@@ -581,29 +565,6 @@ export function useCanvas2D() {
     zoomAt(pt.x, pt.y, factor)
   }
 
-  // ── 绘制完成 ─────────────────────────────────────────────────────────
-
-  function finishDrawing(start: Point2D, end: Point2D) {
-    const kind = store.drawSubTool
-    const dist = Math.hypot(end.X - start.X, end.Y - start.Y)
-
-    if (kind === 'LINE') {
-      if (dist < 0.5) return
-      store.addEntity({
-        kind: 'LINE',
-        start: { X: start.X, Y: start.Y },
-        end: { X: end.X, Y: end.Y },
-      } as any)
-    } else if (kind === 'CIRCLE') {
-      if (dist < 0.5) return
-      store.addEntity({
-        kind: 'CIRCLE',
-        center: { X: start.X, Y: start.Y },
-        radius: dist,
-      } as any)
-    }
-    // ARC / BEZIER / POLYLINE / ELLIPSE — 多步绘制，预留扩展
-  }
 
   // ── 监听 ─────────────────────────────────────────────────────────────
   //
