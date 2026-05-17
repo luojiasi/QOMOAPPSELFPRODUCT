@@ -21,7 +21,7 @@ import { getDefaultStrategy } from './drawStrategies'
 // ── 字段运行时值 ────────────────────────────────────────
 
 type FieldValue =
-  | { kind: 'point'; value: Point2D }
+  | { kind: 'point'; value: Point2D; filled: boolean }
   | { kind: 'number'; value: number }
   | { kind: 'multiPoint'; points: Point2D[] }
   | { kind: 'toggle'; value: boolean }
@@ -40,7 +40,7 @@ export interface DrawSession {
 function emptyValue(def: FieldDef): FieldValue {
   switch (def.kind) {
     case 'point':
-      return { kind: 'point', value: { X: 0, Y: 0 } }
+      return { kind: 'point', value: { X: 0, Y: 0 }, filled: false }
     case 'number':
       return { kind: 'number', value: (def.default as number) ?? 0 }
     case 'multiPoint':
@@ -138,9 +138,15 @@ export function useDrawInteraction() {
    * @param world - 点击位置的世界坐标
    */
   function handleCanvasClick(world: Point2D) {
-    const s = session.value
-    if (!s) return
+    // 无活动 session 但仍在 DRAW 模式 → 自动重启
+    if (!session.value) {
+      if (store.activeTool === 'DRAW' && store.drawSubTool) {
+        _start(store.drawSubTool)
+      }
+      if (!session.value) return
+    }
 
+    const s = session.value!
     const def = _activeFieldDef()
     if (!def) {
       // 全部字段已填完：可以作为"额外顶点"追加到最后一个 multiPoint
@@ -153,6 +159,7 @@ export function useDrawInteraction() {
         const fv = s.values[s.activeIdx]
         if (fv.kind === 'point') {
           fv.value = { X: world.X, Y: world.Y }
+          fv.filled = true
         }
         _advance()
 

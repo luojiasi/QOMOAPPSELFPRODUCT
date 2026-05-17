@@ -382,10 +382,10 @@ export function useCanvas2D() {
     c.lineWidth = cfg.entityLineWidth / store.viewport.zoom
     c.setLineDash(cfg.previewDash.map(d => d / store.viewport.zoom))
 
-    /** 辅助：从 values 读取第 i 个 point 字段的值 */
+    /** 辅助：从 values 读取第 i 个 point 字段的值（仅已填的点有效） */
     function pointAt(i: number): Point2D | null {
       const fv = v[i]
-      if (!fv || fv.kind !== 'point') return null
+      if (!fv || fv.kind !== 'point' || !fv.filled) return null
       return fv.value
     }
 
@@ -449,12 +449,25 @@ export function useCanvas2D() {
       }
     } else if (kind === 'BEZIER') {
       const mv = v[0]
-      if (mv && mv.kind === 'multiPoint' && mv.points.length > 0) {
+      if (mv && mv.kind === 'multiPoint' && mv.points.length >= 2) {
         const pts = mv.points
+        // 以光标作为临时末控点，采样实际贝塞尔曲线预览
+        const allPts = [...pts, { X: cur.X, Y: cur.Y }]
+        const curve = sampleBezierPoints(allPts, 48)
+        if (curve.length >= 2) {
+          c.beginPath(); c.moveTo(curve[0].X, curve[0].Y)
+          for (let i = 1; i < curve.length; i++) c.lineTo(curve[i].X, curve[i].Y)
+          c.stroke()
+        }
+        // 控制多边形（淡色实线）
+        c.setLineDash([])
+        c.globalAlpha = 0.25
         c.beginPath(); c.moveTo(pts[0].X, pts[0].Y)
         for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].X, pts[i].Y)
         c.lineTo(cur.X, cur.Y)
         c.stroke()
+        c.globalAlpha = 1
+        c.setLineDash(cfg.previewDash.map(d => d / store.viewport.zoom))
       }
     } else if (kind === 'ELLIPSE') {
       const p0 = pointAt(0) // center
