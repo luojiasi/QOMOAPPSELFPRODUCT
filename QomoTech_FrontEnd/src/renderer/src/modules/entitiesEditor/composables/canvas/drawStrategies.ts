@@ -19,7 +19,7 @@ export interface DrawStrategyDef {
     fields: FieldDef[]             // 参数列表（顺序即步骤顺序）
   }
 // ── 策略注册表 ───────────────────────────────────────────
-export const DRAW_STRATEGIES: Record<EntityKind, DrawStrategyDef[]>={
+export const DRAW_STRATEGIES: Record<EntityKind, DrawStrategyDef[]> = {
     LINE: [
         {
             id: 'two-point', label: '两点', default: true,
@@ -31,20 +31,20 @@ export const DRAW_STRATEGIES: Record<EntityKind, DrawStrategyDef[]>={
     ],
     ARC: [
         {
-            id: 'center-radius-angle', label: '起点——圆心——终点', default: true,
+            id: 'center-radius-angle', label: '圆心——起点——终点', default: true,
             fields: [
-                { id: 'start', label: '起点', kind: 'point' },
                 { id: 'center', label: '圆心', kind: 'point' },
-                { id: 'end',   label: '终点', kind: 'point' },
+                { id: 'start',  label: '起点', kind: 'point' },
+                { id: 'end',    label: '终点', kind: 'point' },
             ],
         },
     ],
     CIRCLE: [
         {
-            id: 'two-point', label: '两点', default: false,
+            id: 'two-point', label: '圆心+半径', default: true,
             fields: [
               { id: 'center', label: '圆心', kind: 'point' },
-              { id: 'P2',     label: 'P2',   kind: 'point' },
+              { id: 'P2',     label: '半径点', kind: 'point' },
             ],
         },
         {
@@ -77,9 +77,9 @@ export const DRAW_STRATEGIES: Record<EntityKind, DrawStrategyDef[]>={
         {
             id: 'center-axes', label: '圆心+短轴+长轴', default: true,
             fields: [
-                { id: 'center', label: '圆心', kind: 'point' },
+                { id: 'center',    label: '圆心', kind: 'point' },
                 { id: 'shortAxis', label: '短轴', kind: 'point' },
-                { id: 'longAxis', label: '长轴', kind: 'point' },
+                { id: 'longAxis',  label: '长轴', kind: 'point' },
             ],
         },
     ],
