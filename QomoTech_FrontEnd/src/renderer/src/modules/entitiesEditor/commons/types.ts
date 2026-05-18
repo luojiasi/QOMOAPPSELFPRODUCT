@@ -51,8 +51,10 @@ export interface ViewportState {
   width: number; height: number
 }
 // ─── 枚举 ──────────────────────────────────────────
-export type EntityKind = 'LINE' | 'ARC' | 'CIRCLE' | 'POLYLINE' | 'BEZIER' | 'ELLIPSE'
+export type EntityKind = 'LINE' | 'ARC' | 'CIRCLE' | 'POLYLINE' | 'BEZIER' | 'ELLIPSE' | 'DIAMOND'
 export type ToolMode = 'SELECT' | 'DRAW' | 'PAN'
+/** 钻石形状 */
+export type DiamondShape = 'ROUND' | 'SQUARE' | 'HEART' | 'EMERALD'
 /** 开口方向（激光切割特有） */
 export type OpenSide = 'LEFT' | 'RIGHT'
 
@@ -64,7 +66,8 @@ export type EditorEntity =
   | EllipseEntity
   | PolylineEntity
   | BezierEntity
-  
+  | DiamondEntity
+
 
 // ─── 实体定义 ──────────────────────────────────────
 export interface BaseEntity {
@@ -122,11 +125,37 @@ export interface BezierEntity extends BaseEntity {
   controlPoints: Point2D[]
 }
 
+/** DIAMOND — 钻石实体，2D 轮廓由 shape 决定，3D 走刻面构建 */
+export interface DiamondEntity extends BaseEntity {
+  kind: 'DIAMOND'
+  center: Point2D
+  radius: number
+  contours?: PolylineVertex[][]  // 非 ROUND 形状的多段线轮廓
+  diamondParams: DiamondParams
+}
+
+/** 钻石参数 */
+export interface DiamondParams {
+  shape: DiamondShape
+  L: number       // 长度
+  W: number       // 宽度
+  Depth: number   // 深度比率(%)
+  Pavilion: number // 亭部比率(%)
+  Crown: number   // 冠部比率(%)
+  Girdle: number  // 腰部比率(%)
+  Table: number   // 台面比率(%)
+  R?: number      // 冠角参数
+  P?: number      // 亭角参数
+  Tilt?: number   // 倾斜角
+  SW?: number     // 侧宽
+}
+
 // ─── 3D 挤出参数 ───────────────────────────────────
 export interface ExtrusionParams {
   height: number         // 物体高度（底面 Z=0，顶面 Z=height）
   openSize: number       // 开口补偿尺寸
   tiltAngleDeg: number   // 倾斜角度
+  diamondParams?: DiamondParams // 钻石刻面参数（圆形钻石时与 CIRCLE 共用）
 }
 /** 带挤出参数的实体（用于 3D 预览和激光路径计算） */
 export type SurfaceEntity<T extends BaseEntity = BaseEntity> = T & ExtrusionParams

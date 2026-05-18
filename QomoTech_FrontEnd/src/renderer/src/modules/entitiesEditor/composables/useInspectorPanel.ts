@@ -1,13 +1,11 @@
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useEditorStore } from '../stores/editorStore'
 import type { SurfaceEntity, EditorEntity } from '../commons/types'
-import type { InspectorSection } from '../shares/types'
 
 export type InspectedEntity = SurfaceEntity<EditorEntity>
 
 export function useInspectorPanel() {
   const store = useEditorStore()
-  const activeSection = ref<InspectorSection>('params')
 
   const selectedEntity = computed<InspectedEntity | null>(() => {
     if (store.selectedIds.length === 0) return null
@@ -21,7 +19,7 @@ export function useInspectorPanel() {
     return store.entities.filter(e => set.has(e.id))
   })
 
-  function updateField(field: string, value: number | boolean | string, entityId?: string) {
+  function updateField(field: string, value: number | boolean | string | Record<string, unknown>[], entityId?: string) {
     const id = entityId ?? selectedEntity.value?.id
     if (!id) return
 
@@ -41,5 +39,5 @@ export function useInspectorPanel() {
     }
   }
 
-  return { activeSection, selectedEntity, selectedEntities, updateField }
+  return { selectedEntity, selectedEntities, updateField }
 }

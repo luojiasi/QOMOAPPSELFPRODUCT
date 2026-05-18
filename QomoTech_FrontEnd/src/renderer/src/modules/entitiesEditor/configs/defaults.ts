@@ -23,17 +23,18 @@ export const ACTIONS: ActionDef[] = [
     // ── 图形 ──
     { id: 'DRAW_LINE', label: '线', group: 'shape', key: 'l' },
     { id: 'DRAW_ARC', label: '弧', group: 'shape', key: 'a' },
-    { id: 'DRAW_BEZIER', label: '曲线', group: 'shape', key: 'b' },
     { id: 'DRAW_CIRCLE', label: '圆', group: 'shape', key: 'c' },
     { id: 'DRAW_ELLIPSE', label: '椭圆', group: 'shape', key: 'e' },
     { id: 'DRAW_POLYLINE', label: '多段线', group: 'shape', key: 'p' },
-    { id: 'DRAW_BEZIER', label: '贝塞尔曲线', group: 'shape', key: 'b' },
-  
+    { id: 'DRAW_BEZIER', label: '曲线', group: 'shape', key: 'b' },
+    // —— 钻石工具 ——
+    { id: 'DRAW_DIAMOND', label: '钻石', group: 'diamond', key: 'd' },
     // ── 工具 ──
     { id: 'SELECT', label: '选择', group: 'tool', key: 'v' },
     { id: 'PAN', label: '平移', group: 'tool', key: 'h' },
     { id: 'DELETE_SELECTED', label: '删除', group: 'tool', key: 'Delete' },
     { id: 'FIT_VIEW', label: '适应', group: 'tool', key: '0' },
+    { id: 'RECENTER_ENTITIES', label: '图形居中', group: 'tool', key: '0', ctrl: true },
     // ── 3D ──
     { id: 'TOGGLE_GRID', label: '显示网格', group: 'view', key: 'g' },
     { id: 'TOGGLE_AXES', label: '显示坐标轴', group: 'view', key: 'x' },
@@ -86,6 +87,19 @@ export const GRID_COLOR_CENTER = 0x334155
 export const GRID_COLOR_EDGE = 0x1e293b
 export const GRID_ROTATION_X = Math.PI / 2 // Z-up：GridHelper 从 XY 翻到 XZ 面
 
+// ── 预览材质 ──
+export const MATERIAL_DEFAULT_COLOR = 0x60a5fa
+export const MATERIAL_SELECTED_COLOR = 0x3b82f6
+export const MATERIAL_WALL_TOP_COLOR = 0x818cf8
+export const MATERIAL_WALL_BOTTOM_COLOR = 0x3730a3
+export const MATERIAL_REFERENCE_OPACITY = 0.8
+export const MATERIAL_WALL_OPACITY = 0.35
+export const MATERIAL_SELECTED_WALL_OPACITY = 0.55
+export const MATERIAL_CAP_COLOR = 0x6ee7b7
+export const MATERIAL_SELECTED_CAP_COLOR = 0x34d399
+export const MATERIAL_CAP_OPACITY = 0.5
+export const MATERIAL_SELECTED_CAP_OPACITY = 0.7
+
 
 
 // ============ 2D 场景 ============
@@ -103,6 +117,7 @@ export const OPEN_PATH_SAMPLE_SEGMENTS = 96
 // ── 网格 ──
 export const CANVAS_GRID_STEP = 2
 export const CANVAS_GRID_COLOR = '#1e293b'
+export const DEFAULT_SNAP_TO_GRID = false
 export const CANVAS_GRID_AXIS_COLOR = '#334155'
 export const CANVAS_AXIS_LINE_WIDTH = 2
 
@@ -135,4 +150,11 @@ export const INITIAL_PAN_Y = 0
 export const INITIAL_VIEWPORT_WIDTH = 800
 export const INITIAL_VIEWPORT_HEIGHT = 800
 export const PROJECT_VERSION = '1.0.0'
+// ── 钻石预设 ──
+import type { DiamondParams } from '../commons/types'
+
+export const DIAMOND_PRESETS: DiamondParams[] = [
+  { shape: 'ROUND', L: 6, W: 6, Depth: 62, Pavilion: 43.5, Crown: 14.7, Girdle: 4, Table: 58, R: 3.1167, P: 0.5529, Tilt: 0, SW: 3.37 },
+]
+
 export const PROJECT_DEFAULT_NAME = '未命名项目'

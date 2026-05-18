@@ -46,6 +46,7 @@ import type {
   ToolMode,
   EntityKind,
   ProjectMeta,
+  DiamondShape,
 } from '../commons/types'
 import {
   MAX_UNDO_STEPS,
@@ -151,6 +152,9 @@ export const useEditorStore = defineStore('entitiesEditor', () => {
 
   /** DRAW 模式下的子图元类型：LINE | ARC | CIRCLE 等。 */
   const drawSubTool    = ref<EntityKind>('LINE')
+
+  /** 钻石绘制模式：非 null 时，提交 CIRCLE/POLYLINE 实体时自动附加 diamondParams */
+  const diamondShape   = ref<DiamondShape | null>(null)
 
   /** 项目元信息：名称、版本、实体数、更新时间等。 */
   const projectMeta    = ref<ProjectMeta>(createInitialMeta())
@@ -287,6 +291,16 @@ export const useEditorStore = defineStore('entitiesEditor', () => {
    */
   function setDrawSubTool(kind: EntityKind) {
     drawSubTool.value = kind
+  }
+
+  /**
+   * 设置钻石绘制模式。
+   * 非 null 时，下一个提交的 CIRCLE/POLYLINE 实体将自动附加 diamondParams。
+   *
+   * @param shape - 钻石形状，null = 退出钻石模式
+   */
+  function setDiamondShape(shape: DiamondShape | null) {
+    diamondShape.value = shape
   }
 
   /**
@@ -469,6 +483,26 @@ export const useEditorStore = defineStore('entitiesEditor', () => {
     syncMeta()
   }
 
+  /**
+   * 将实体移动到指定图层。
+   * 目标图层不存在或与当前图层相同时无操作。
+   *
+   * @param entityId - 实体 id
+   * @param targetLayerId - 目标图层 id
+   */
+  function moveEntityToLayer(entityId: string, targetLayerId: string) {
+    const entity = entities.value.find(e => e.id === entityId)
+    if (!entity) return
+    if (entity.layerId === targetLayerId) return
+    if (!layers.value.some(l => l.id === targetLayerId)) return
+    captureSnapshot()
+    entity.layerId = targetLayerId
+    if (!dirtyEntityIds.value.includes(entityId)) {
+      dirtyEntityIds.value.push(entityId)
+    }
+    syncMeta()
+  }
+
   // ── Viewport（视口，不进入撤销栈）────────────────────────────────────
 
   /**
@@ -520,6 +554,7 @@ export const useEditorStore = defineStore('entitiesEditor', () => {
     selectedIds,
     activeTool,
     drawSubTool,
+    diamondShape,
     projectMeta,
     undoStack,
     redoStack,
@@ -532,6 +567,7 @@ export const useEditorStore = defineStore('entitiesEditor', () => {
     redo,
     setTool,
     setDrawSubTool,
+    setDiamondShape,
     setSelection,
     addEntity,
     updateEntity,
@@ -540,6 +576,7 @@ export const useEditorStore = defineStore('entitiesEditor', () => {
     createLayer,
     deleteLayer,
     updateLayer,
+    moveEntityToLayer,
     setViewportSize,
     resetViewport,
     clearDirty,

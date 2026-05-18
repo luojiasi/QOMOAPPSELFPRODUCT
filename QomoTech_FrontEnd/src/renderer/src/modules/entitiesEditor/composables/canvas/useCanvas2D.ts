@@ -40,8 +40,10 @@ import type {
   LineEntity,
   ArcEntity,
   CircleEntity,
+  DiamondEntity,
   EllipseEntity,
   PolylineEntity,
+  PolylineVertex,
   BezierEntity,
   ViewportState,
 } from '@/modules/entitiesEditor/commons/types'
@@ -83,7 +85,7 @@ export function useCanvas2D() {
   const hoveredId = ref<string | null>(null)
 
   // ── rAF 脏标记 ──────────────────────────────────────────────────────
-
+  // 作用：将同一帧内的多次重绘请求合并为一次实际渲染。
   let rafId = 0
   let dirty = false
 
@@ -114,13 +116,13 @@ export function useCanvas2D() {
     }
   }
 
-  function worldToScreen(wx: number, wy: number): { x: number; y: number } {
-    const vp: ViewportState = store.viewport
-    return {
-      x: (wx + vp.panX) * vp.zoom + vp.width / 2,
-      y: vp.height / 2 - (wy + vp.panY) * vp.zoom,
-    }
-  }
+  // function worldToScreen(wx: number, wy: number): { x: number; y: number } {
+    // const vp: ViewportState = store.viewport
+    // return {
+      // x: (wx + vp.panX) * vp.zoom + vp.width / 2,
+      // y: vp.height / 2 - (wy + vp.panY) * vp.zoom,
+    // }
+  // }
 
   // ── Canvas 尺寸 ──────────────────────────────────────────────────────
 
@@ -180,9 +182,13 @@ export function useCanvas2D() {
     // 网格
     drawGrid(c, vp)
 
-    // 实体
+    // 实体（只绘制可见图层）
+    const visibleLayerIds = new Set(
+      store.layers.filter(l => l.visible).map(l => l.id)
+    )
     const selectedSet = new Set(store.selectedIds)
     for (const entity of store.entities) {
+      if (!visibleLayerIds.has(entity.layerId)) continue
       const selected = selectedSet.has(entity.id)
       const hovered = entity.id === hoveredId.value
       drawEntity(c, entity, selected, hovered)
@@ -245,7 +251,6 @@ export function useCanvas2D() {
   }
 
   // ── 实体绘制 ─────────────────────────────────────────────────────────
-
   function drawEntity(
     c: CanvasRenderingContext2D,
     entity: SurfaceEntity<EditorEntity>,
@@ -267,7 +272,11 @@ export function useCanvas2D() {
       case 'LINE':     drawLine(entity); break
       case 'ARC':      drawArc(entity); break
       case 'CIRCLE':   drawCircle(entity); break
-      case 'BEZIER':   drawBezier(entity); break
+      case 'DIAMOND':  drawDiamond(entity); break
+      case 'BEZIER':
+        drawBezier(entity)
+        if (selected) drawBezierControlPoints(c, entity)
+        break
       case 'POLYLINE': drawPolyline(entity); break
       case 'ELLIPSE':  drawEllipse(entity); break
     }
@@ -292,6 +301,21 @@ export function useCanvas2D() {
 
   function drawCircle(e: CircleEntity) {
     const c = getCtx()!; c.beginPath(); c.arc(e.center.X, e.center.Y, e.radius, 0, Math.PI * 2); c.stroke()
+  }
+
+  function drawDiamond(e: DiamondEntity) {
+    const c = getCtx()!
+    if (e.contours && e.contours.length > 0) {
+      for (const contour of e.contours) {
+        const pts = samplePolylineVertices(contour)
+        if (pts.length < 2) continue
+        c.beginPath(); c.moveTo(pts[0].X, pts[0].Y)
+        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].X, pts[i].Y)
+        c.closePath(); c.stroke()
+      }
+    } else {
+      c.beginPath(); c.arc(e.center.X, e.center.Y, e.radius, 0, Math.PI * 2); c.stroke()
+    }
   }
 
   /**
@@ -322,6 +346,39 @@ export function useCanvas2D() {
     c.beginPath(); c.moveTo(sampled[0].X, sampled[0].Y)
     for (let i = 1; i < sampled.length; i++) c.lineTo(sampled[i].X, sampled[i].Y)
     c.stroke()
+  }
+
+  /** 绘制贝塞尔控制点（选中时调用）：实心圆 + 控制多边形虚线 */
+  function drawBezierControlPoints(c: CanvasRenderingContext2D, e: BezierEntity) {
+    const pts = e.controlPoints
+    if (pts.length < 2) return
+
+    const zoom = store.viewport.zoom
+    const r = 5 / zoom        // 控制点半径（屏幕像素恒定）
+    const handleColor = '#fbbf24'
+    const handleStroke = '#d97706'
+    const polyColor = 'rgba(251,191,36,0.45)'
+
+    c.save()
+
+    // 控制多边形虚线
+    c.strokeStyle = polyColor
+    c.lineWidth = 1 / zoom
+    c.setLineDash([4 / zoom, 4 / zoom])
+    c.beginPath()
+    c.moveTo(pts[0].X, pts[0].Y)
+    for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].X, pts[i].Y)
+    c.stroke()
+    c.setLineDash([])
+
+    // 控制点实心圆
+    c.fillStyle = handleColor
+    c.strokeStyle = handleStroke
+    c.lineWidth = 1.5 / zoom
+    for (const p of pts) {
+      c.beginPath(); c.arc(p.X, p.Y, r, 0, Math.PI * 2); c.fill(); c.stroke()
+    }
+    c.restore()
   }
 
   function drawPolyline(e: PolylineEntity) {
@@ -376,8 +433,9 @@ export function useCanvas2D() {
     if (!s) return
     const kind = s.kind
     const v = s.values
-    const cur = cursorWorld.value
+    const cur = cursorWorld.value  //当前鼠标世界坐标
 
+    //设置虚线样式
     c.strokeStyle = cfg.previewStroke
     c.lineWidth = cfg.entityLineWidth / store.viewport.zoom
     c.setLineDash(cfg.previewDash.map(d => d / store.viewport.zoom))
@@ -423,7 +481,7 @@ export function useCanvas2D() {
         c.arc(center.X, center.Y, radius, startRad, endRad, ccw)
         c.stroke()
       }
-    } else if (kind === 'CIRCLE') {
+    } else if (kind === 'CIRCLE' || kind === 'DIAMOND') {
       // 字段顺序：center(0), P2(1)
       const center = pointAt(0)
       if (center) {
@@ -440,12 +498,18 @@ export function useCanvas2D() {
     } else if (kind === 'POLYLINE') {
       const mv = v[0]
       if (mv && mv.kind === 'multiPoint' && mv.points.length > 0) {
-        const pts = mv.points
-        c.beginPath(); c.moveTo(pts[0].X, pts[0].Y)
-        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].X, pts[i].Y)
-        // 连接到光标
-        c.lineTo(cur.X, cur.Y)
-        c.stroke()
+        // 含 bulge 的顶点采样 → 预览弧段效果
+        const verts: PolylineVertex[] = mv.points.map((p, i) => ({
+          point: p,
+          bulge: (mv as unknown as Record<string, unknown>).bulges?.[i] as number ?? 0,
+        }))
+        verts.push({ point: cur, bulge: 0 })
+        const sampled = samplePolylineVertices(verts)
+        if (sampled.length >= 2) {
+          c.beginPath(); c.moveTo(sampled[0].X, sampled[0].Y)
+          for (let i = 1; i < sampled.length; i++) c.lineTo(sampled[i].X, sampled[i].Y)
+          c.stroke()
+        }
       }
     } else if (kind === 'BEZIER') {
       const mv = v[0]
@@ -600,6 +664,17 @@ export function useCanvas2D() {
         return hitArcEntity(world, entity, threshold)
       case 'CIRCLE':
         return Math.abs(Math.hypot(world.X - entity.center.X, world.Y - entity.center.Y) - entity.radius) <= threshold
+      case 'DIAMOND': {
+        const e = entity
+        if (e.contours && e.contours.length > 0) {
+          for (const contour of e.contours) {
+            const pts = samplePolylineVertices(contour)
+            if (hitPolyline(world.X, world.Y, pts, threshold)) return true
+          }
+          return false
+        }
+        return Math.abs(Math.hypot(world.X - e.center.X, world.Y - e.center.Y) - e.radius) <= threshold
+      }
       case 'BEZIER':
         return hitPolyline(world.X, world.Y, sampleBezierPoints(entity.controlPoints, 64), threshold)
       case 'POLYLINE':
@@ -614,9 +689,13 @@ export function useCanvas2D() {
   /** 返回命中的实体 id（按绘制顺序反向，后绘制的优先），未命中返回 null */
   function hitTest(world: Point2D): string | null {
     const threshold = hitThreshold()
+    const visibleLayerIds = new Set(
+      store.layers.filter(l => l.visible).map(l => l.id)
+    )
     for (let i = store.entities.length - 1; i >= 0; i--) {
-      if (hitTestEntity(world, store.entities[i], threshold)) {
-        return store.entities[i].id
+      const e = store.entities[i]
+      if (visibleLayerIds.has(e.layerId) && hitTestEntity(world, e, threshold)) {
+        return e.id
       }
     }
     return null
@@ -631,7 +710,11 @@ export function useCanvas2D() {
     const maxY = Math.max(rect.start.Y, rect.end.Y)
 
     const ids: string[] = []
+    const visibleLayerIds = new Set(
+      store.layers.filter(l => l.visible).map(l => l.id)
+    )
     for (const e of store.entities) {
+      if (!visibleLayerIds.has(e.layerId)) continue
       const bb = getEntityBounds(e)
       if (bb.maxX >= minX && bb.minX <= maxX && bb.maxY >= minY && bb.minY <= maxY) {
         ids.push(e.id)
@@ -666,6 +749,16 @@ export function useCanvas2D() {
 
   // ── 鼠标事件处理 ─────────────────────────────────────────────────────
 
+  /** 将世界坐标吸附到最近网格交点（仅在 snapToGrid 启用时生效） */
+  function snapToGridPoint(world: Point2D): Point2D {
+    if (!cfg.snaptoGrid) return world
+    const step = cfg.gridStep
+    return {
+      X: Math.round(world.X / step) * step,
+      Y: Math.round(world.Y / step) * step,
+    }
+  }
+
   function handleMouseDown(e: MouseEvent) {
     const pt = getCanvasPoint(e)
     const world = screenToWorld(pt.x, pt.y)
@@ -683,8 +776,8 @@ export function useCanvas2D() {
       }
       scheduleRender()
     } else if (tool === 'DRAW') {
-      // 点击式绘制：委托给交互状态机
-      drawInteraction.handleCanvasClick(world)
+      // 点击式绘制：委托给交互状态机（吸附后）
+      drawInteraction.handleCanvasClick(snapToGridPoint(world))
       scheduleRender()
     } else if (tool === 'PAN') {
       panStart.value = {
@@ -702,9 +795,9 @@ export function useCanvas2D() {
 
     cursorX.value = world.X
     cursorY.value = world.Y
-    cursorWorld.value = world
 
     if (store.activeTool === 'SELECT') {
+      cursorWorld.value = world
       if (selectionRect.value) {
         selectionRect.value = { start: selectionRect.value.start, end: { ...world } }
         scheduleRender()
@@ -714,8 +807,10 @@ export function useCanvas2D() {
         if (prev !== hoveredId.value) scheduleRender()
       }
     } else if (store.activeTool === 'DRAW' && drawInteraction.isActive.value) {
+      cursorWorld.value = snapToGridPoint(world)
       scheduleRender()
     } else if (store.activeTool === 'PAN' && panStart.value) {
+      cursorWorld.value = world
       const dx = e.clientX - panStart.value.sx
       const dy = e.clientY - panStart.value.sy
       store.viewport.panX = panStart.value.panX + dx / store.viewport.zoom
@@ -847,5 +942,5 @@ export function useCanvas2D() {
 
   // ── Public API ───────────────────────────────────────────────────────
 
-  return { canvasRef, setup, cleanup, reloadConfig }
+  return { canvasRef, setup, cleanup, reloadConfig, drawInteraction }
 }

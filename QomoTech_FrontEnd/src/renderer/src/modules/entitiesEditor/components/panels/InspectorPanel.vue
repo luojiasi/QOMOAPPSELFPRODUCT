@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useInspectorPanel, type InspectedEntity } from '../../composables/useInspectorPanel'
+import { type InspectedEntity } from '../../composables/useInspectorPanel'
+import PointRow from '../../shares/PointRow.vue'
 
 const props = defineProps<{
   entities?: InspectedEntity[]
 }>()
 
 const emit = defineEmits<{
-  'update': [field: string, value: number | boolean | string, entityId?: string]
+  'update': [field: string, value: number | boolean | string | Record<string, unknown>[], entityId?: string]
 }>()
-
-const { activeSection } = useInspectorPanel()
 
 // 折叠状态：多选时每个实体可折叠
 const collapsed = ref<Set<string>>(new Set())
@@ -23,6 +22,71 @@ function toggleCollapse(id: string) {
 
 function isCollapsed(id: string) {
   return collapsed.value.has(id)
+}
+
+import type { Point2D, BezierEntity, PolylineVertex, PolylineEntity, ExtrusionParams } from '../../commons/types'
+
+type BezierInspectedEntity = BezierEntity & ExtrusionParams
+type PolylineInspectedEntity = PolylineEntity & ExtrusionParams
+
+function updateControlPoint(entity: BezierInspectedEntity, idx: number, axis: 'X' | 'Y', value: number) {
+  const pts = entity.controlPoints.map((p: Point2D) => ({ ...p }))
+  pts[idx] = { ...pts[idx], [axis]: value }
+  emit('update', 'controlPoints', pts as unknown as Record<string, unknown>[], entity.id)
+}
+
+function addControlPoint(entity: BezierInspectedEntity) {
+  const pts = entity.controlPoints.map((p: Point2D) => ({ ...p }))
+  const last = pts[pts.length - 1] ?? { X: 0, Y: 0 }
+  pts.push({ X: last.X + 10, Y: last.Y })
+  emit('update', 'controlPoints', pts as unknown as Record<string, unknown>[], entity.id)
+}
+
+function removeControlPoint(entity: BezierInspectedEntity) {
+  if (entity.controlPoints.length <= 2) return
+  const pts = entity.controlPoints.slice(0, -1).map((p: Point2D) => ({ ...p }))
+  emit('update', 'controlPoints', pts as unknown as Record<string, unknown>[], entity.id)
+}
+
+// ── POLYLINE 顶点编辑 ──
+
+function updatePolyVertex(entity: PolylineInspectedEntity, idx: number, field: 'X' | 'Y' | 'bulge', value: number) {
+  const verts: PolylineVertex[] = entity.vertices.map(v => ({ point: { ...v.point }, bulge: v.bulge }))
+  if (field === 'bulge') {
+    verts[idx].bulge = value
+  } else {
+    verts[idx].point[field] = value
+  }
+  emit('update', 'vertices', verts as unknown as Record<string, unknown>[], entity.id)
+}
+
+function addPolyVertex(entity: PolylineInspectedEntity) {
+  const last = entity.vertices[entity.vertices.length - 1]
+  const p = last ? { X: last.point.X + 10, Y: last.point.Y } : { X: 0, Y: 0 }
+  const verts: PolylineVertex[] = [
+    ...entity.vertices.map(v => ({ point: { ...v.point }, bulge: v.bulge })),
+    { point: p, bulge: 0 },
+  ]
+  emit('update', 'vertices', verts as unknown as Record<string, unknown>[], entity.id)
+}
+
+function removePolyVertex(entity: PolylineInspectedEntity) {
+  if (entity.vertices.length <= 2) return
+  const verts = entity.vertices.slice(0, -1).map(v => ({ point: { ...v.point }, bulge: v.bulge }))
+  emit('update', 'vertices', verts as unknown as Record<string, unknown>[], entity.id)
+}
+
+/** 钻石长/宽修改：ROUND 时 L=W 联动 + radius 同步；非 ROUND 仅更新当前字段 */
+function onDiamondLWChange(entity: InspectedEntity, value: number) {
+  if (value <= 0) return
+  if (entity.diamondParams?.shape === 'ROUND') {
+    emit('update', 'diamondParams.L', value, entity.id)
+    emit('update', 'diamondParams.W', value, entity.id)
+    emit('update', 'radius', value / 2, entity.id)
+  } else {
+    emit('update', 'diamondParams.L', value, entity.id)
+    emit('update', 'diamondParams.W', value, entity.id)
+  }
 }
 
 const count = computed(() => props.entities?.length ?? 0)
@@ -75,33 +139,18 @@ const count = computed(() => props.entities?.length ?? 0)
             <div class="section-label">几何参数</div>
 
             <template v-if="entity.kind === 'LINE'">
-              <label class="field"><span>起点 X</span>
-                <input type="number" :value="entity.start.X" step="1"
-                  @input="emit('update', 'start.X', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
-              <label class="field"><span>起点 Y</span>
-                <input type="number" :value="entity.start.Y" step="1"
-                  @input="emit('update', 'start.Y', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
-              <label class="field"><span>终点 X</span>
-                <input type="number" :value="entity.end.X" step="1"
-                  @input="emit('update', 'end.X', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
-              <label class="field"><span>终点 Y</span>
-                <input type="number" :value="entity.end.Y" step="1"
-                  @input="emit('update', 'end.Y', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
+              <PointRow label="起点" :x="entity.start.X" :y="entity.start.Y"
+                :entity-id="entity.id" x-field="start.X" y-field="start.Y"
+                @update="(f, v, id) => emit('update', f, v, id)" />
+              <PointRow label="终点" :x="entity.end.X" :y="entity.end.Y"
+                :entity-id="entity.id" x-field="end.X" y-field="end.Y"
+                @update="(f, v, id) => emit('update', f, v, id)" />
             </template>
 
             <template v-else-if="entity.kind === 'ARC'">
-              <label class="field"><span>圆心 X</span>
-                <input type="number" :value="entity.center.X" step="1"
-                  @input="emit('update', 'center.X', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
-              <label class="field"><span>圆心 Y</span>
-                <input type="number" :value="entity.center.Y" step="1"
-                  @input="emit('update', 'center.Y', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
+              <PointRow label="圆心" :x="entity.center.X" :y="entity.center.Y"
+                :entity-id="entity.id" x-field="center.X" y-field="center.Y"
+                @update="(f, v, id) => emit('update', f, v, id)" />
               <label class="field"><span>半径</span>
                 <input type="number" :value="entity.radius" step="1" min="0.1"
                   @input="emit('update', 'radius', +($event.target as HTMLInputElement).value, entity.id)" />
@@ -117,14 +166,19 @@ const count = computed(() => props.entities?.length ?? 0)
             </template>
 
             <template v-else-if="entity.kind === 'CIRCLE'">
-              <label class="field"><span>圆心 X</span>
-                <input type="number" :value="entity.center.X" step="1"
-                  @input="emit('update', 'center.X', +($event.target as HTMLInputElement).value, entity.id)" />
+              <PointRow label="圆心" :x="entity.center.X" :y="entity.center.Y"
+                :entity-id="entity.id" x-field="center.X" y-field="center.Y"
+                @update="(f, v, id) => emit('update', f, v, id)" />
+              <label class="field"><span>半径</span>
+                <input type="number" :value="entity.radius" step="1" min="0.1"
+                  @input="emit('update', 'radius', +($event.target as HTMLInputElement).value, entity.id)" />
               </label>
-              <label class="field"><span>圆心 Y</span>
-                <input type="number" :value="entity.center.Y" step="1"
-                  @input="emit('update', 'center.Y', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
+            </template>
+
+            <template v-else-if="entity.kind === 'DIAMOND'">
+              <PointRow label="圆心" :x="entity.center.X" :y="entity.center.Y"
+                :entity-id="entity.id" x-field="center.X" y-field="center.Y"
+                @update="(f, v, id) => emit('update', f, v, id)" />
               <label class="field"><span>半径</span>
                 <input type="number" :value="entity.radius" step="1" min="0.1"
                   @input="emit('update', 'radius', +($event.target as HTMLInputElement).value, entity.id)" />
@@ -132,22 +186,12 @@ const count = computed(() => props.entities?.length ?? 0)
             </template>
 
             <template v-else-if="entity.kind === 'ELLIPSE'">
-              <label class="field"><span>圆心 X</span>
-                <input type="number" :value="entity.center.X" step="1"
-                  @input="emit('update', 'center.X', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
-              <label class="field"><span>圆心 Y</span>
-                <input type="number" :value="entity.center.Y" step="1"
-                  @input="emit('update', 'center.Y', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
-              <label class="field"><span>长轴端点 X</span>
-                <input type="number" :value="entity.majorAxisEnd.X" step="1"
-                  @input="emit('update', 'majorAxisEnd.X', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
-              <label class="field"><span>长轴端点 Y</span>
-                <input type="number" :value="entity.majorAxisEnd.Y" step="1"
-                  @input="emit('update', 'majorAxisEnd.Y', +($event.target as HTMLInputElement).value, entity.id)" />
-              </label>
+              <PointRow label="圆心" :x="entity.center.X" :y="entity.center.Y"
+                :entity-id="entity.id" x-field="center.X" y-field="center.Y"
+                @update="(f, v, id) => emit('update', f, v, id)" />
+              <PointRow label="长轴端点" :x="entity.majorAxisEnd.X" :y="entity.majorAxisEnd.Y"
+                :entity-id="entity.id" x-field="majorAxisEnd.X" y-field="majorAxisEnd.Y"
+                @update="(f, v, id) => emit('update', f, v, id)" />
               <label class="field"><span>短轴比例</span>
                 <input type="number" :value="entity.minorAxisRatio" step="0.01" min="0.01" max="1"
                   @input="emit('update', 'minorAxisRatio', +($event.target as HTMLInputElement).value, entity.id)" />
@@ -168,17 +212,77 @@ const count = computed(() => props.entities?.length ?? 0)
                 <input type="checkbox" :checked="entity.closed"
                   @change="emit('update', 'closed', ($event.target as HTMLInputElement).checked, entity.id)" />
               </label>
-              <div class="field readonly">
-                <span>顶点数</span>
-                <span class="readonly-value">{{ entity.vertices.length }}</span>
+              <div class="section-label">顶点 ({{ entity.vertices.length }})</div>
+              <div v-for="(vt, idx) in entity.vertices" :key="idx" class="poly-vertex-row">
+                <PointRow
+                  :label="String(idx + 1)" compact :step="0.1"
+                  :x="vt.point.X" :y="vt.point.Y"
+                  :entity-id="entity.id"
+                  x-field="X" y-field="Y"
+                  @update="(f, v) => updatePolyVertex(entity as PolylineInspectedEntity, idx, f as 'X' | 'Y', v)"
+                />
+                <label class="poly-bulge-field">
+                  <span>凸度：</span>
+                  <input type="number" :value="vt.bulge" step="0.01"
+                    @input="updatePolyVertex(entity as PolylineInspectedEntity, idx, 'bulge', +($event.target as HTMLInputElement).value)" />
+                </label>
+              </div>
+              <div class="bezier-actions">
+                <button class="action-btn" @click="addPolyVertex(entity as PolylineInspectedEntity)">+ 添加</button>
+                <button class="action-btn"
+                  :disabled="entity.vertices.length <= 2"
+                  @click="removePolyVertex(entity as PolylineInspectedEntity)"
+                >- 删除</button>
               </div>
             </template>
 
             <template v-else-if="entity.kind === 'BEZIER'">
-              <div class="field readonly">
-                <span>控制点数</span>
-                <span class="readonly-value">{{ entity.controlPoints.length }}</span>
+              <div class="section-label">控制点 ({{ entity.controlPoints.length }})</div>
+              <PointRow v-for="(pt, idx) in entity.controlPoints" :key="idx"
+                :label="String(idx + 1)" compact :step="0.1"
+                :x="pt.X" :y="pt.Y" :entity-id="entity.id"
+                x-field="X" y-field="Y"
+                @update="(f, v) => updateControlPoint(entity, idx, f as 'X' | 'Y', v)" />
+              <div class="bezier-actions">
+                <button class="action-btn" @click="addControlPoint(entity)">+ 添加</button>
+                <button class="action-btn"
+                :disabled="entity.controlPoints.length <= 2"
+                @click="removeControlPoint(entity)"
+                >- 删除</button>
               </div>
+            </template>
+
+            <!-- ── 钻石参数（任何实体有 diamondParams 时显示） ── -->
+            <template v-if="entity.diamondParams">
+              <div class="section-label">钻石参数</div>
+              <label class="field"><span>长 (L)</span>
+                <input type="number" :value="entity.diamondParams.L" step="0.01" min="0.1"
+                  @input="onDiamondLWChange(entity, +($event.target as HTMLInputElement).value)" />
+              </label>
+              <label class="field"><span>宽 (W)</span>
+                <input type="number" :value="entity.diamondParams.W" step="0.01" min="0.1"
+                  @input="onDiamondLWChange(entity, +($event.target as HTMLInputElement).value)" />
+              </label>
+              <label class="field"><span>深度 %</span>
+                <input type="number" :value="entity.diamondParams.Depth" step="0.1" min="0" max="100"
+                  @input="emit('update', 'diamondParams.Depth', +($event.target as HTMLInputElement).value, entity.id)" />
+              </label>
+              <label class="field"><span>亭部 %</span>
+                <input type="number" :value="entity.diamondParams.Pavilion" step="0.1" min="0" max="100"
+                  @input="emit('update', 'diamondParams.Pavilion', +($event.target as HTMLInputElement).value, entity.id)" />
+              </label>
+              <label class="field"><span>冠部 %</span>
+                <input type="number" :value="entity.diamondParams.Crown" step="0.1" min="0" max="100"
+                  @input="emit('update', 'diamondParams.Crown', +($event.target as HTMLInputElement).value, entity.id)" />
+              </label>
+              <label class="field"><span>腰部 %</span>
+                <input type="number" :value="entity.diamondParams.Girdle" step="0.1" min="0" max="100"
+                  @input="emit('update', 'diamondParams.Girdle', +($event.target as HTMLInputElement).value, entity.id)" />
+              </label>
+              <label class="field"><span>台面 %</span>
+                <input type="number" :value="entity.diamondParams.Table" step="0.1" min="0" max="100"
+                  @input="emit('update', 'diamondParams.Table', +($event.target as HTMLInputElement).value, entity.id)" />
+              </label>
             </template>
 
             <!-- ── 挤出参数（共用到所有实体） ── -->
@@ -341,6 +445,62 @@ const count = computed(() => props.entities?.length ?? 0)
 
 .field.readonly { cursor: default; }
 .readonly-value {
+  color: #d4d4d8;
+  font-size: 12px;
+}
+
+/* ── 贝塞尔控制点 ── */
+
+.poly-vertex-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.poly-bulge-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.poly-bulge-field span {
+  font-size: 10px;
+  color: #52525b;
+}
+.poly-bulge-field input {
+  width: 60px;
+  padding: 2px 4px;
+  font-size: 11px;
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  color: #d4d4d8;
+  text-align: right;
+  outline: none;
+}
+.poly-bulge-field input:focus { border-color: #3b82f6; }
+
+.bezier-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.action-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: all .15s;
+}
+.action-btn:hover:not(:disabled) { background: #27272a; color: #d4d4d8; }
+.action-btn:disabled { 
+  opacity: 0.3; 
+  cursor: not-allowed;
+  background: #18181b;
+  border: 1px solid #3f3f46;
   color: #a1a1aa;
   font-variant-numeric: tabular-nums;
 }

@@ -13,25 +13,26 @@
 // =============================================================================
 
 import { computed, ref, watch } from 'vue'
-import type { Point2D, EntityKind } from '../../commons/types'
+import type { Point2D, EntityKind, DiamondShape, PolylineVertex } from '../../commons/types'
 import type { DrawStrategyDef, FieldDef } from './drawStrategies'
 import { useEditorStore } from '../../stores/editorStore'
 import { getDefaultStrategy } from './drawStrategies'
+import { DIAMOND_PRESETS } from '../../configs/defaults'
 
 // ── 字段运行时值 ────────────────────────────────────────
 
 type FieldValue =
   | { kind: 'point'; value: Point2D; filled: boolean }
   | { kind: 'number'; value: number }
-  | { kind: 'multiPoint'; points: Point2D[] }
+  | { kind: 'multiPoint'; points: Point2D[]; bulges: number[] }
   | { kind: 'toggle'; value: boolean }
 
 /** 当前绘制会话 */
 export interface DrawSession {
-  kind: EntityKind
-  strategy: DrawStrategyDef
-  values: FieldValue[]
-  activeIdx: number // 当前等待输入的字段索引
+  kind: EntityKind           //类型
+  strategy: DrawStrategyDef  //策略
+  values: FieldValue[]       //值
+  activeIdx: number          // 当前等待输入的字段索引
 }
 
 // ── 辅助 ───────────────────────────────────────────────
@@ -44,7 +45,7 @@ function emptyValue(def: FieldDef): FieldValue {
     case 'number':
       return { kind: 'number', value: (def.default as number) ?? 0 }
     case 'multiPoint':
-      return { kind: 'multiPoint', points: [] }
+      return { kind: 'multiPoint', points: [], bulges: [] }
     case 'toggle':
       return { kind: 'toggle', value: (def.default as boolean) ?? false }
   }
@@ -79,9 +80,16 @@ export function useDrawInteraction() {
 
   // ── 内部方法 ──────────────────────────────────────────
 
-  /** 启动新会话 */
+  /** 启动新会话
+  DrawSession {
+    kind: 'LINE',
+    strategy: { id: 'two-point', fields: [{id:'start',kind:'point'}, {id:'end',kind:'point'}] },
+    values: [ {kind:'point', filled:false}, {kind:'point', filled:false} ],
+    activeIdx: 0,   // 当前等待输入第几个字段
+  }
+   */
   function _start(kind: EntityKind) {
-    const strategy = getDefaultStrategy(kind)
+    const strategy = getDefaultStrategy(kind)   //获取默认策略
     session.value = {
       kind,
       strategy,
@@ -120,8 +128,9 @@ export function useDrawInteraction() {
     const s = session.value
     if (!s) return
     const v = s.values
-    const input = buildEntityInput(s.kind, s.strategy.id, v)
+    const input = buildEntityInput(s.kind, s.strategy.id, v, store.diamondShape)
     if (input) {
+      if (s.kind === 'DIAMOND') store.setDiamondShape(null)
       store.addEntity(input as any)
     }
     session.value = null
@@ -146,6 +155,7 @@ export function useDrawInteraction() {
       if (!session.value) return
     }
 
+    // 获取当前等待的字段定义
     const s = session.value!
     const def = _activeFieldDef()
     if (!def) {
@@ -164,9 +174,7 @@ export function useDrawInteraction() {
         _advance()
 
         // 所有 point 字段填完后自动 commit
-        if (_allFieldsFilled()) {
-          _commit()
-        }
+        if (_allFieldsFilled()) _commit()
         break
       }
       case 'multiPoint':
@@ -192,6 +200,7 @@ export function useDrawInteraction() {
     let fv = s.values[s.activeIdx]
     if (fv && fv.kind === 'multiPoint') {
       fv.points.push({ X: world.X, Y: world.Y })
+      fv.bulges.push(0)
       return
     }
 
@@ -201,6 +210,7 @@ export function useDrawInteraction() {
       fv = s.values[prevIdx]
       if (fv && fv.kind === 'multiPoint') {
         fv.points.push({ X: world.X, Y: world.Y })
+        fv.bulges.push(0)
       }
     }
   }
@@ -251,6 +261,7 @@ export function useDrawInteraction() {
       const fv = s.values[i]
       if (fv.kind === 'multiPoint' && fv.points.length > 0) {
         fv.points.pop()
+        fv.bulges.pop()
         // 如果清空了，回退 activeIdx
         if (fv.points.length === 0 && s.activeIdx > i) {
           // 保持 activeIdx 不变（让用户重新从 multiPoint 开始）
@@ -270,7 +281,11 @@ export function useDrawInteraction() {
   watch(
     () => store.activeTool,
     (tool) => {
-      if (tool !== 'DRAW') cancel()
+      if (tool !== 'DRAW') {
+        cancel()
+      } else if (!session.value && store.drawSubTool) {
+        _start(store.drawSubTool)
+      }
     },
   )
 
@@ -302,6 +317,7 @@ function buildEntityInput(
   kind: EntityKind,
   _strategyId: string,
   values: FieldValue[],
+  diamondShape: DiamondShape | null,
 ): object | null {
   switch (kind) {
     case 'LINE':
@@ -316,6 +332,8 @@ function buildEntityInput(
       return buildBezier(values)
     case 'ELLIPSE':
       return buildEllipse(values)
+    case 'DIAMOND':
+      return buildDiamond(values, diamondShape)
     default:
       return null
   }
@@ -377,7 +395,7 @@ function buildPolyline(values: FieldValue[]): object | null {
   return {
     kind: 'POLYLINE' as const,
     closed,
-    vertices: fv.points.map((p) => ({ point: p, bulge: 0 })),
+    vertices: fv.points.map((p, i) => ({ point: p, bulge: fv.bulges[i] ?? 0 })),
   }
 }
 
@@ -415,5 +433,36 @@ function buildEllipse(values: FieldValue[]): object | null {
     minorAxisRatio,
     startParamDeg: 0,
     endParamDeg: 360,
+  }
+}
+
+function buildDiamond(values: FieldValue[], diamondShape: DiamondShape | null): object | null {
+  const center = (values[0] as any)?.value as Point2D | undefined
+  const p2 = (values[1] as any)?.value as Point2D | undefined
+  if (!center || !p2) return null
+
+  const radius = dist(center, p2)
+  if (radius < 1e-6) return null
+
+  const shape = diamondShape ?? 'ROUND'
+  const diameter = radius * 2
+
+  let contours: PolylineVertex[][] | undefined
+  if (shape === 'SQUARE') {
+    const R = radius
+    contours = [[
+      { point: { X: center.X - R, Y: center.Y - R }, bulge: 0 },
+      { point: { X: center.X + R, Y: center.Y - R }, bulge: 0 },
+      { point: { X: center.X + R, Y: center.Y + R }, bulge: 0 },
+      { point: { X: center.X - R, Y: center.Y + R }, bulge: 0 },
+    ]]
+  }
+
+  return {
+    kind: 'DIAMOND' as const,
+    center,
+    radius,
+    contours,
+    diamondParams: { ...DIAMOND_PRESETS[0], shape, L: diameter, W: diameter },
   }
 }

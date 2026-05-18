@@ -11,23 +11,32 @@ import SettingsDialog from '../components/SettingsDialog.vue'
 import StatusBar from '../components/StatusBar.vue'
 import { useRightPanel } from '../composables/useRightPanel'
 import { useInspectorPanel } from '../composables/useInspectorPanel'
+import { useLayoutPanel } from '../composables/useLayoutPanel'
 import { useKeyboardShortcuts } from '../composables/shortcuts/useKeyboardShortcuts'
 import { useShortCutsDetails } from '../composables/shortcuts/useShortCutsDetails'
 import { SETTINGS_STATE_KEY } from '../shares/types'
 import type { ActionDef, Scene3DConfig } from '../shares/types'
 import { loadSceneConfig, saveSceneConfig } from '../stores/preview3dStore'
 import { saveProject, exportProject, loadProjectIntoStore } from '../stores/projectStore'
-import { EntityKind } from '../commons/types'
+import { importDxf } from '../composables/canvas/useImportCad'
+import { EntityKind, DiamondShape } from '../commons/types'
 import { useEditorStore } from '../stores/editorStore'
 
 const { activeTab, rightPanelTabs } = useRightPanel()
-const { selectedEntity, selectedEntities, updateField } = useInspectorPanel()
+const {selectedEntities, updateField } = useInspectorPanel()
 const editorStore = useEditorStore()
+
+// ── 图层面板桥接 ──
+const { layers: panelLayers, addLayer, deleteLayer, toggleLayer } = useLayoutPanel()
+function onAddLayer()           { addLayer() }
+function onDeleteLayer(id: string) { deleteLayer(id) }
+function onToggleLayer(id: string) { toggleLayer(id) }
 
 const settingsRef = ref<InstanceType<typeof SettingsDialog> | null>(null)
 const previewRef = ref<InstanceType<typeof Preview3D> | null>(null)
 const toolbarRef = ref<InstanceType<typeof EditorToolbar> | null>(null)
 const canvas2DRef = ref<InstanceType<typeof Canvas2D> | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // ── 页面初始化：从 localStorage 恢复上次保存的项目 ──
 loadProjectIntoStore()
@@ -52,19 +61,43 @@ const { dispatchAction } = useShortCutsDetails({
   onToggleAxes: () => toggleSceneConfig({ showAxes: !loadSceneConfig().showAxes }),
   onSave: ()=>saveProject(),
   onExport: ()=> exportProject(),
+  onImportDxf: () => fileInputRef.value?.click(),
 })
+
+function handleImportDxf(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const text = reader.result as string
+    const result = importDxf(text)
+    editorStore.replaceAllEntities(result.entities, result.layers, {
+      name: file.name.replace(/\.dxf$/i, ''),
+      sourceFileName: file.name,
+    })
+    saveProject()
+  }
+  reader.readAsText(file)
+  input.value = ''
+}
 
 function onToolbarAction(a: ActionDef) {
   dispatchAction(a)
 }
 /** 右键切换绘制策略（EditorToolbar 冒泡上来） */
 function onContextStrategy(payload: { kind: EntityKind; strategyId: string }) {
-  // // 先保存策略选择，再切换工具 —— _start 会读取已保存的策略
-  // // canvas2DRef.value?.drawInteraction.setStrategy(payload.kind, payload.strategyId)
   editorStore.setTool('DRAW')
   editorStore.setDrawSubTool(payload.kind)
 }
 
+/** 钻石右键选择形状 */
+function onDiamondShape(shape: DiamondShape) {
+  editorStore.setTool('DRAW')
+  editorStore.setDrawSubTool('DIAMOND')
+  editorStore.setDiamondShape(shape)
+}
 
 function onSettingsSaved() {
   previewRef.value?.reloadConfig()
@@ -78,7 +111,7 @@ useKeyboardShortcuts(dispatchAction, { isOpen: settingsIsOpen, capturing: settin
 <template>
   <div class="editor-page">
     <!-- 首先我们要在这里去添加回传给到2D去画图 -->
-    <EditorToolbar ref="toolbarRef" @action="onToolbarAction"  @context-strategy="onContextStrategy"/>
+    <EditorToolbar ref="toolbarRef" @action="onToolbarAction" @context-strategy="onContextStrategy" @context-diamond-shape="onDiamondShape" />
 
     <div class="main-area desktop-only">
       <div class="panel panel-3d">
@@ -89,7 +122,13 @@ useKeyboardShortcuts(dispatchAction, { isOpen: settingsIsOpen, capturing: settin
       </div>
       <div class="panel panel-right">
         <SwitchableView v-model="activeTab" :tabs="rightPanelTabs">
-          <LayoutPanel v-if="activeTab === 'layout'" />
+          <LayoutPanel
+            v-if="activeTab === 'layout'"
+            :layers="panelLayers"
+            @add-layer="onAddLayer"
+            @delete-layer="onDeleteLayer"
+            @toggle-layer="onToggleLayer"
+          />
           <InspectorPanel v-else-if="activeTab === 'inspector'" :entities="selectedEntities" @update="updateField" />
           <StoreDebugger v-else-if="activeTab === 'debug'" />
         </SwitchableView>
@@ -97,6 +136,14 @@ useKeyboardShortcuts(dispatchAction, { isOpen: settingsIsOpen, capturing: settin
     </div>
 
     <StatusBar />
+
+    <input
+      ref="fileInputRef"
+      type="file"
+      accept=".dxf"
+      style="display: none"
+      @change="handleImportDxf"
+    />
 
     <SettingsDialog ref="settingsRef" @saved="onSettingsSaved" />
   </div>
